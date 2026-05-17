@@ -724,6 +724,7 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
         Enabled: false,
         Cookie: '',
         SavePath: '/',
+        PlayMode: 'direct_first',
       },
       Mobile: {
         Enabled: false,
@@ -761,7 +762,11 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
       Enabled: false,
       Cookie: '',
       SavePath: '/',
+      PlayMode: 'direct_first',
     };
+  }
+  if (!adminConfig.NetDiskConfig.Quark.PlayMode) {
+    adminConfig.NetDiskConfig.Quark.PlayMode = 'direct_first';
   }
 
   if (!adminConfig.NetDiskConfig.Mobile) {

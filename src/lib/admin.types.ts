@@ -152,6 +152,7 @@ export interface AdminConfig {
       Enabled: boolean;
       Cookie: string;
       SavePath: string;
+      PlayMode?: 'direct_first' | 'transcode_first';
     };
     Mobile?: {
       Enabled: boolean;

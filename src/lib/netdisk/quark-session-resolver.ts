@@ -1,6 +1,7 @@
 import { getConfig } from '@/lib/config';
 
 import { listQuarkShareVideos } from './quark.client';
+import type { QuarkPlayMode } from './quark.client';
 import {
   createQuarkNetdiskSession,
   getQuarkNetdiskSession,
@@ -33,5 +34,12 @@ export async function resolveQuarkSession(id: string) {
     throw new Error('夸克网盘播放信息恢复失败');
   }
 
-  return { session, cookie: quarkConfig.Cookie, savePath: quarkConfig.SavePath || '/' };
+  const playMode: QuarkPlayMode = quarkConfig.PlayMode === 'transcode_first' ? 'transcode_first' : 'direct_first';
+
+  return {
+    session,
+    cookie: quarkConfig.Cookie,
+    savePath: quarkConfig.SavePath || '/',
+    playMode,
+  };
 }

@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: '无效的 episodeIndex' }, { status: 400 });
     }
 
-    const { session, cookie, savePath } = await resolveQuarkSession(id);
+    const { session, cookie, savePath, playMode } = await resolveQuarkSession(id);
     const file = session.files[episodeIndex];
     if (!file) {
       return NextResponse.json({ error: '播放文件不存在' }, { status: 404 });
@@ -52,45 +52,142 @@ export async function GET(request: NextRequest) {
     }
     refreshQuarkNetdiskSession(id);
 
-    const playUrls = await getQuarkPlayUrls(cookie, savedFileId);
+    const playUrls = await getQuarkPlayUrls(cookie, savedFileId, playMode);
     const selected = playUrls.find((item) => item.name === quality) || playUrls[0];
-    if (!selected) {
+    const candidates = selected
+      ? [
+          selected,
+          ...playUrls.filter((item) => item.url !== selected.url),
+        ]
+      : [];
+    if (candidates.length === 0) {
       return NextResponse.json({ error: '未获取到夸克播放地址' }, { status: 500 });
     }
 
     const range = request.headers.get('range');
-    const abortController = new AbortController();
-    const timeoutId = setTimeout(() => abortController.abort(), 300000);
+    const passthroughHeaderNames = [
+      'accept',
+      'accept-language',
+      'accept-encoding',
+      'connection',
+      'sec-fetch-dest',
+      'sec-fetch-mode',
+      'sec-fetch-site',
+    ];
+    const passthroughHeaders: Record<string, string> = {};
+    for (const name of passthroughHeaderNames) {
+      const value = request.headers.get(name);
+      if (value) passthroughHeaders[name] = value;
+    }
 
     try {
-      const upstream = await fetch(selected.url, {
-        headers: {
-          ...getQuarkPlayHeaders(cookie),
-          ...(range ? { Range: range } : {}),
+      let upstream: Response | null = null;
+      let lastStatus = 500;
+      const headerProfiles = [
+        {
+          name: 'quark-empty-ua',
+          headers: {
+            ...passthroughHeaders,
+            ...getQuarkPlayHeaders(cookie),
+          },
         },
-        cache: 'no-store',
-        signal: abortController.signal,
-      });
+        {
+          name: 'quark-api-ua',
+          headers: {
+            ...passthroughHeaders,
+            cookie,
+            referer: 'https://pan.quark.cn/',
+            'user-agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch',
+          },
+        },
+        {
+          name: 'quark-no-ua',
+          headers: {
+            ...passthroughHeaders,
+            cookie,
+            referer: 'https://pan.quark.cn/',
+          },
+        },
+        {
+          name: 'browser-origin',
+          headers: {
+            ...passthroughHeaders,
+            cookie,
+            origin: 'https://pan.quark.cn',
+            referer: 'https://pan.quark.cn/',
+            'user-agent':
+              request.headers.get('user-agent') ||
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
+          },
+        },
+      ];
 
-      clearTimeout(timeoutId);
+      for (const candidate of candidates) {
+        for (const profile of headerProfiles) {
+          const abortController = new AbortController();
+          const timeoutId = setTimeout(() => abortController.abort(), 300000);
 
-      if (!upstream.ok || !upstream.body) {
+          try {
+            const requestHeaders = {
+              ...profile.headers,
+              ...(range ? { Range: range } : {}),
+            };
+            const response = await fetch(candidate.url, {
+              headers: requestHeaders,
+              cache: 'no-store',
+              signal: abortController.signal,
+            });
+
+            clearTimeout(timeoutId);
+            if (response.ok && response.body) {
+              upstream = response;
+              if (candidate.url !== selected.url) {
+                console.warn(`[quark] fallback play url used: ${selected.name} -> ${candidate.name}`);
+              }
+              if (profile.name !== 'quark-empty-ua') {
+                console.warn(`[quark] fallback header profile used: ${profile.name}`);
+              }
+              break;
+            }
+
+            lastStatus = response.status || 500;
+            const errorText = await response.text().catch(() => '');
+            console.warn(
+              `[quark] play url failed: ${candidate.name} / ${profile.name} (${lastStatus}) ${errorText.slice(0, 200)}`
+            );
+          } catch (error) {
+            clearTimeout(timeoutId);
+            if (error instanceof Error && error.name === 'AbortError') {
+              throw error;
+            }
+            console.warn(`[quark] play url request failed: ${candidate.name} / ${profile.name}`, error);
+          }
+        }
+
+        if (upstream) {
+          break;
+        }
+      }
+
+      if (!upstream) {
         return NextResponse.json(
-          { error: `夸克视频代理失败 (${upstream.status})` },
-          { status: upstream.status || 500 }
+          { error: `夸克视频代理失败 (${lastStatus})` },
+          { status: lastStatus }
         );
       }
 
+      const response = upstream as Response & { body: ReadableStream<Uint8Array> };
       const responseHeaders = new Headers();
       const copyHeaders = ['content-type', 'content-length', 'content-range', 'accept-ranges', 'etag', 'last-modified'];
       copyHeaders.forEach((name) => {
-        const value = upstream.headers.get(name);
+        const value = response.headers.get(name);
         if (value) responseHeaders.set(name, value);
       });
       responseHeaders.set('Cache-Control', 'private, no-store');
 
       const { readable, writable } = new TransformStream();
-      const reader = upstream.body.getReader();
+      const reader = response.body.getReader();
 
       void (async () => {
         const writer = writable.getWriter();
@@ -125,11 +222,10 @@ export async function GET(request: NextRequest) {
       })();
 
       return new Response(readable, {
-        status: range && upstream.headers.get('content-range') ? 206 : upstream.status,
+        status: range && response.headers.get('content-range') ? 206 : response.status,
         headers: responseHeaders,
       });
     } catch (error) {
-      clearTimeout(timeoutId);
       if (error instanceof Error && error.name === 'AbortError') {
         return NextResponse.json({ error: '夸克网盘代理超时' }, { status: 504 });
       }

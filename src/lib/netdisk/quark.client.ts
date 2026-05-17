@@ -3,6 +3,8 @@
 const QUARK_SHARE_API_BASE = 'https://drive-h.quark.cn/1/clouddrive';
 const QUARK_DRIVE_API_BASE = 'https://drive-pc.quark.cn/1/clouddrive';
 const QUARK_QUERY = 'pr=ucpro&fr=pc';
+const QUARK_API_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch';
 
 export interface QuarkShareLinkInfo {
   pwdId: string;
@@ -40,6 +42,8 @@ export interface QuarkShareVideoListResult {
   }>;
 }
 
+export type QuarkPlayMode = 'direct_first' | 'transcode_first';
+
 const VIDEO_EXTENSIONS = [
   '.mp4',
   '.mkv',
@@ -69,20 +73,16 @@ function getHeaders(cookie: string): HeadersInit {
   return {
     'content-type': 'application/json',
     cookie,
-    origin: 'https://pan.quark.cn',
     referer: 'https://pan.quark.cn/',
-    'user-agent':
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
+    'user-agent': QUARK_API_USER_AGENT,
   };
 }
 
 export function getQuarkPlayHeaders(cookie: string): Record<string, string> {
   return {
     cookie,
-    origin: 'https://pan.quark.cn',
     referer: 'https://pan.quark.cn/',
-    'user-agent':
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
+    'user-agent': QUARK_API_USER_AGENT,
   };
 }
 
@@ -685,7 +685,8 @@ export async function saveQuarkShareFile(
 
 export async function getQuarkPlayUrls(
   cookie: string,
-  savedFileId: string
+  savedFileId: string,
+  playMode: QuarkPlayMode = 'direct_first'
 ): Promise<Array<{ name: string; url: string; priority: number }>> {
   const safeCookie = assertQuarkCookieHeaderSafe(cookie);
   const headers = getHeaders(safeCookie);
@@ -710,8 +711,8 @@ export async function getQuarkPlayUrls(
         priority: 9999,
       });
     }
-  } catch {
-    // ignore download failure, continue transcoding fallback
+  } catch (error) {
+    console.warn('[quark] get original download url failed:', error);
   }
 
   try {
@@ -748,12 +749,18 @@ export async function getQuarkPlayUrls(
         }
       }
     }
-  } catch {
-    // ignore transcoding failure
+  } catch (error) {
+    console.warn('[quark] get transcoding play url failed:', error);
   }
 
   const deduped = urls.filter((item, index, array) => array.findIndex((v) => v.url === item.url) === index);
-  deduped.sort((a, b) => b.priority - a.priority);
+  deduped.sort((a, b) => {
+    if (playMode === 'transcode_first') {
+      if (a.name === '原画' && b.name !== '原画') return 1;
+      if (a.name !== '原画' && b.name === '原画') return -1;
+    }
+    return b.priority - a.priority;
+  });
 
   if (deduped.length === 0) {
     throw new Error('未获取到夸克播放地址');

@@ -3936,6 +3936,7 @@ const NetDiskConfigComponent = ({
   const [enabled, setEnabled] = useState(false);
   const [cookie, setCookie] = useState('');
   const [savePath, setSavePath] = useState('/');
+  const [quarkPlayMode, setQuarkPlayMode] = useState<'direct_first' | 'transcode_first'>('direct_first');
   const [mobileEnabled, setMobileEnabled] = useState(false);
   const [mobileAuthorization, setMobileAuthorization] = useState('');
   const [baiduEnabled, setBaiduEnabled] = useState(false);
@@ -3959,6 +3960,7 @@ const NetDiskConfigComponent = ({
     setEnabled(quark?.Enabled || false);
     setCookie(quark?.Cookie || '');
     setSavePath(quark?.SavePath || '/');
+    setQuarkPlayMode(quark?.PlayMode === 'transcode_first' ? 'transcode_first' : 'direct_first');
     setMobileEnabled(mobile?.Enabled || false);
     setMobileAuthorization(mobile?.Authorization || '');
     setBaiduEnabled(config?.NetDiskConfig?.Baidu?.Enabled || false);
@@ -3988,6 +3990,7 @@ const NetDiskConfigComponent = ({
             Enabled: enabled,
             Cookie: cookie,
             SavePath: savePath,
+            PlayMode: quarkPlayMode,
           },
           Mobile: {
             Enabled: mobileEnabled,
@@ -4304,6 +4307,24 @@ const NetDiskConfigComponent = ({
               placeholder='/影视/正式转存'
               className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed'
             />
+          </div>
+
+          <div>
+            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+              播放方式
+            </label>
+            <select
+              value={quarkPlayMode}
+              onChange={(e) => setQuarkPlayMode(e.target.value === 'transcode_first' ? 'transcode_first' : 'direct_first')}
+              disabled={!enabled}
+              className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed'
+            >
+              <option value='direct_first'>直链优先</option>
+              <option value='transcode_first'>转码优先</option>
+            </select>
+            <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+              直链优先会优先使用原画下载地址；转码优先会优先使用夸克转码播放地址。
+            </p>
           </div>
 
           <div className='flex gap-3'>
