@@ -1,0 +1,38 @@
+name: Scheduled Fork Sync
+
+on:
+  push:
+  schedule:
+    - cron: '0 */3 * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout target repo
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Sync upstream changes safely
+        env:
+          UPSTREAM_URL: "https://github.com/mtvpls/MoonTVPlus.git"
+          TARGET_BRANCH: "main"
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          # 添加上游远程仓库
+          git remote add upstream "$UPSTREAM_URL"
+          git fetch upstream
+          
+          # 检查出分支
+          git checkout "$TARGET_BRANCH"
+          
+          # 核心修改：采用 merge 替代 hard reset，或者在同步前保护 workflows 文件夹
+          # 这样可以合并上游更新的同时，保留本地编写的 workflow 文件
+          git merge "upstream/$TARGET_BRANCH" --allow-unrelated-histories -m "Auto sync with upstream" || true
+          
+          # 推送到自己的仓库
+          git push https://${{ secrets.SYNC_TOKEN }}@github.com/${{ github.repository }}.git "$TARGET_BRANCH"
