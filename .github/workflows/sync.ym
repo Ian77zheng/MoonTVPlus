@@ -1,44 +1,46 @@
-name: Scheduled Fork Sync
+name: Native Scheduled Fork Sync
 
 on:
   push:
   schedule:
-    - cron: '0 */3 * * *'
-  workflow_dispatch:
+    - cron: '0 */3 * * *' # 每 3 小时同步一次
+  workflow_dispatch: # 支持手动点击按钮触发
 
 jobs:
   sync:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout target repo
         uses: actions/checkout@v4
         with:
-          persist-credentials: false
+          persist-credentials: false # 不使用默认 token 持久化，后面用更安全的配置
 
-      - name: Sync upstream changes and protect sync.yml
+      - name: Sync upstream changes
         env:
-          UPSTREAM_URL: "https://github.com/mtvpls/MoonTVPlus.git"
-          TARGET_BRANCH: "main"
+          # 如果你有配置 Personal Access Token (PAT) 建议放在 Secrets 里用它，
+          # 如果没有，可以先尝试用带有权限的 GITHUB_TOKEN
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # 1. 配置 Git 用户信息
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # 2. 添加上游仓库地址（请把下面 https://github.com/OWNER/UPSTREAM_REPO.git 换成你真正的上游仓库地址）
+          git remote add upstream https://github.com/OWNER/UPSTREAM_REPO.git
           
-          # 1. 添加上游并拉取
-          git remote add upstream "$UPSTREAM_URL"
+          # 3. 拉取上游代码
           git fetch upstream
-          git checkout "$TARGET_BRANCH"
-          
-          # 2. 正常合并上游更新
-          git merge "upstream/$TARGET_BRANCH" --allow-unrelated-histories -m "Auto sync with upstream" || true
-          
-          # 3. 关键保护：强制检出（恢复）本地的 sync.yml，确保它绝对不会被上游冲掉或删掉
-          git checkout HEAD -- .github/workflows/sync.yml || true
-          
-          # 4. 如果 sync.yml 刚才有未暂存的修改，把它加进本次提交
-          git add .github/workflows/sync.yml || true
-          
-          # 如果有变更需要提交，再做一次 commit
-          git commit -m "Protect sync.yml from upstream overwrite" || echo "No changes to commit"
-          
-          # 5. 推送到自己的仓库
-          git push https://${{ secrets.SYNC_TOKEN }}@github.com/${{ github.repository }}.git "$TARGET_BRANCH"
+
+          # 4. 切换到你的主分支（如果你的默认分支是 master，请改成 master）
+          git checkout main
+
+          # 5. 合并上游分支（这里以 main 为例）
+          git merge upstream/main --allow-unrelated-histories -m "Auto-sync with upstream"
+
+          # 6. 推送到你的 Fork 仓库
+          # 使用带有写权限的 Token 进行推送
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+          git push origin main
